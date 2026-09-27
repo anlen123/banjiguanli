@@ -25,7 +25,9 @@ def test_withdraw_ownership_deadline_and_attachment_cleanup(clients):
     pid = p["id"]
     uid = student.get("/api/auth/me").json()["id"]
     url = f"/api/projects/{pid}/submission"
-    fid = student.post(f"/api/projects/{pid}/files/file", files={"file": ("a.pdf", b"original")}).json()["id"]
+    fid = student.post(
+        f"/api/projects/{pid}/files/file", files={"file": ("a.pdf", b"original")}
+    ).json()["id"]
     assert student.put(url, json={"answers": {"name": "student", "file": [fid]}}).status_code == 200
     assert other.delete(url + f"?user_id={uid}").status_code == 403
     assert student.delete(url).status_code == 200
@@ -47,9 +49,16 @@ def test_project_delete_cleans_only_target_project(clients):
     pids = [p["id"], other["id"]]
     fids = []
     for pid in pids:
-        fid = student.post(f"/api/projects/{pid}/files/file", files={"file": ("a.pdf", b"original")}).json()["id"]
+        fid = student.post(
+            f"/api/projects/{pid}/files/file", files={"file": ("a.pdf", b"original")}
+        ).json()["id"]
         fids.append(fid)
-        assert student.put(f"/api/projects/{pid}/submission", json={"answers": {"name": "x", "file": [fid]}}).status_code == 200
+        assert (
+            student.put(
+                f"/api/projects/{pid}/submission", json={"answers": {"name": "x", "file": [fid]}}
+            ).status_code
+            == 200
+        )
     assert student.delete(f"/api/projects/{p['id']}").status_code == 403
     assert root.delete(f"/api/projects/{p['id']}").status_code == 200
     assert root.get(f"/api/projects/{p['id']}").status_code == 404
@@ -59,4 +68,6 @@ def test_project_delete_cleans_only_target_project(clients):
     assert root.get(f"/api/files/{fids[1]}").content == b"original"
     assert root.get(f"/api/projects/{other['id']}/submissions").json()
     with service.db() as c:
-        assert c.execute("SELECT COUNT(*) FROM audit WHERE action='delete_project'").fetchone()[0] == 1
+        assert (
+            c.execute("SELECT COUNT(*) FROM audit WHERE action='delete_project'").fetchone()[0] == 1
+        )

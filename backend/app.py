@@ -6,7 +6,6 @@ import argparse
 import base64
 import hashlib
 import hmac
-import io
 import ipaddress
 import json
 import os
@@ -17,15 +16,14 @@ import time
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal, NoReturn, cast
+from typing import Literal, NoReturn
 from urllib.parse import urlparse
 
+import exports
 import httpx
 from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
-from openpyxl import Workbook
-from openpyxl.worksheet.worksheet import Worksheet
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 DATA = Path(os.getenv("DATA_DIR", Path(__file__).parent / "data"))
@@ -631,7 +629,10 @@ def delete_project(pid: int, user=Depends(admin)):
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
         get_project(c, pid, user)
-        c.execute("INSERT OR IGNORE INTO file_deletions SELECT id FROM attachments WHERE project_id=?", (pid,))
+        c.execute(
+            "INSERT OR IGNORE INTO file_deletions SELECT id FROM attachments WHERE project_id=?",
+            (pid,),
+        )
         c.execute("DELETE FROM submissions WHERE project_id=?", (pid,))
         c.execute("DELETE FROM attachments WHERE project_id=?", (pid,))
         c.execute("DELETE FROM projects WHERE id=?", (pid,))
@@ -649,9 +650,14 @@ def withdraw_submission(pid: int, user_id: int | None = None, user=Depends(curre
         c.execute("BEGIN IMMEDIATE")
         p = get_project(c, pid, user)
         editable(p, user)
-        if not c.execute("SELECT id FROM submissions WHERE project_id=? AND user_id=?", (pid, uid)).fetchone():
+        if not c.execute(
+            "SELECT id FROM submissions WHERE project_id=? AND user_id=?", (pid, uid)
+        ).fetchone():
             fail(404, "尚未提交或填写信息已撤回")
-        c.execute("INSERT OR IGNORE INTO file_deletions SELECT id FROM attachments WHERE project_id=? AND user_id=?", (pid, uid))
+        c.execute(
+            "INSERT OR IGNORE INTO file_deletions SELECT id FROM attachments WHERE project_id=? AND user_id=?",
+            (pid, uid),
+        )
         c.execute("DELETE FROM submissions WHERE project_id=? AND user_id=?", (pid, uid))
         c.execute("DELETE FROM attachments WHERE project_id=? AND user_id=?", (pid, uid))
         audit(c, user["id"], "withdraw_submission", f"{pid}:{uid}")
@@ -745,69 +751,72 @@ def download(aid: str, user=Depends(current_user)):
 
 
 @app.get("/api/projects/{pid}/export")
-def export(pid: int, user=Depends(admin)):
+def export(pid: int, format: Literal["xlsx", "zip"] = "xlsx", user=Depends(admin)):
+    assets = []
+    total = 0
     with db() as c:
+        # A consistent snapshot; concurrent deletion cannot remove files during packaging.
+        c.execute("BEGIN IMMEDIATE")
         p = get_project(c, pid, user)
         rows = c.execute(
-            "SELECT s.*,u.name,u.student_no FROM submissions s JOIN users u ON u.id=s.user_id WHERE project_id=? ORDER BY u.student_no",
+            "SELECT s.*,u.name,u.student_no FROM submissions s JOIN users u ON u.id=s.user_id WHERE project_id=? ORDER BY u.student_no,u.id",
             (pid,),
         ).fetchall()
-        book = Workbook()
-        sheet = cast(Worksheet, book.active)
-        sheet.title = "填写结果"
-        from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
-
-        def excel_text(value):
-            return ILLEGAL_CHARACTERS_RE.sub("", str(value if value is not None else ""))
-
-        sheet.append(
-            ["姓名", "学号", "更新时间 (UTC)"] + [excel_text(f["label"]) for f in p["fields"]]
-        )
+        records = []
         for row in rows:
-            answers = stored_json(row["answers"])
-            values = [row["name"], row["student_no"], row["updated_at"]]
-            for f in p["fields"]:
-                value = answers.get(f["id"], "")
-                if isinstance(value, list):
-                    names = []
-                    for aid in value:
-                        item = c.execute(
-                            "SELECT filename FROM attachments WHERE id=?", (aid,)
-                        ).fetchone()
-                        if item:
-                            names.append(item[0] + " · /api/files/" + aid)
-                    value = "\n".join(names)
-                values.append(value)
-            sheet.append([excel_text(v) for v in values])
-        # Force every user-controlled cell to literal text to prevent formula injection.
-        for row in sheet:
-            for cell in row:
-                if cell.value is not None:
-                    cell.value = str(cell.value)
-                    cell.data_type = "s"
-        from openpyxl.styles import Alignment, Color, Font, PatternFill
-
-        for i in range(1, sheet.max_column + 1):
-            cell = sheet.cell(1, i)
-            cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill("solid", fgColor=Color(rgb="427B69"))
-        from openpyxl.utils import get_column_letter
-
-        for i in range(1, sheet.max_column + 1):
-            sheet.column_dimensions[get_column_letter(i)].width = 26
-        for row in sheet:
-            for cell in row:
-                cell.alignment = Alignment(vertical="top", wrap_text=True)
-        sheet.freeze_panes = "D2"
-        sheet.auto_filter.ref = sheet.dimensions
-        data = io.BytesIO()
-        book.save(data)
-        data.seek(0)
-        audit(c, user["id"], "export", pid)
-    return StreamingResponse(
-        data,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="project-{pid}.xlsx"'},
+            record = dict(row)
+            record["answers"] = stored_json(row["answers"])
+            records.append(record)
+            for index, question in enumerate(p["fields"], 1):
+                if question["type"] != "file":
+                    continue
+                for aid in record["answers"].get(question["id"], []) or []:
+                    item = c.execute(
+                        "SELECT * FROM attachments WHERE id=? AND project_id=? AND user_id=? AND field_id=?",
+                        (aid, pid, row["user_id"], question["id"]),
+                    ).fetchone()
+                    if not item:
+                        fail(409, "附件记录缺失，无法生成完整导出，请先修复资料")
+                    if (
+                        total + item["size"] > exports.MAX_EXPORT_BYTES
+                        or len(assets) >= exports.MAX_EXPORT_FILES
+                    ):
+                        fail(
+                            413,
+                            "单次导出限 100 MB 原附件及 500 个文件，请拆分收集项目或联系管理员处理",
+                        )
+                    try:
+                        with (DATA / "uploads" / aid).open("rb") as source:
+                            data = source.read(exports.MAX_EXPORT_BYTES - total + 1)
+                    except OSError:
+                        fail(409, f"附件文件缺失或不可读：{item['filename']}，请恢复备份后再导出")
+                    if len(data) != item["size"]:
+                        fail(409, f"附件大小异常：{item['filename']}，请核对原文件")
+                    total += len(data)
+                    path = f"attachments/u{row['user_id']}/q{index}/{aid}-{exports.portable_name(item['filename'])}"
+                    assets.append(
+                        exports.Asset(
+                            aid,
+                            row["user_id"],
+                            row["name"],
+                            question["label"],
+                            item["filename"],
+                            data,
+                            path,
+                        )
+                    )
+        payload = (
+            exports.build_zip(p, records, assets)
+            if format == "zip"
+            else exports.build_workbook(p, records, assets, embedded=True)
+        )
+        audit(c, user["id"], "export:" + format, pid)
+    return Response(
+        payload,
+        media_type="application/zip"
+        if format == "zip"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="project-{pid}.{format}"'},
     )
 
 

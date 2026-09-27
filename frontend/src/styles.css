@@ -1,8 +1,28 @@
 /* Nunito and Noto Sans SC are self-hosted by animal-island-ui/style. */
-.admin-personal-actions { display:flex; justify-content:space-between; gap:12px; padding:0 0 12px; flex-wrap:wrap; }
-.admin-personal-actions button { display:flex; align-items:center; gap:5px; border:0; background:transparent; padding:5px 0; font-size:12px; }
-.delete-project { color:#af725c; }
-.export-actions { display:flex; flex-wrap:wrap; gap:12px; }
+.admin-personal-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 12px;
+  flex-wrap: wrap;
+}
+.admin-personal-actions button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  padding: 5px 0;
+  font-size: 12px;
+}
+.delete-project {
+  color: #af725c;
+}
+.export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
 
 :root {
   font-family:
@@ -2885,10 +2905,14 @@ tr:last-child td {
   }
 }
 @media (hover: none) {
-  .project-card:hover { transform: none; }
+  .project-card:hover {
+    transform: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .project-card:hover { transform: none; }
+  .project-card:hover {
+    transform: none;
+  }
   *,
   *:before,
   *:after {

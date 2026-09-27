@@ -41,7 +41,7 @@ export function Results({
     null,
   );
   const [version, setVersion] = useState(0);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<"xlsx" | "zip" | null>(null);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -53,9 +53,7 @@ export function Results({
       .then(([r, u]) => {
         if (active) {
           setRows(r);
-          setUsers(
-            u.filter((x) => x.status === "approved"),
-          );
+          setUsers(u.filter((x) => x.status === "approved"));
         }
       })
       .catch((e) => {
@@ -76,18 +74,30 @@ export function Results({
       .includes(search.toLowerCase()),
   );
   const missing = users.filter((u) => !rows.some((r) => r.user_id === u.id));
-  async function exportExcel() {
-    setExporting(true);
+  async function exportExcel(format: "xlsx" | "zip") {
+    setExporting(format);
     setError("");
     try {
-      const response = await fetch(`/api/projects/${project.id}/export`, {
-        credentials: "same-origin",
-      });
-      if (!response.ok) throw new Error("导出失败，请检查登录状态后重试");
+      const response = await fetch(
+        `/api/projects/${project.id}/export?format=${format}`,
+        {
+          credentials: "same-origin",
+        },
+      );
+      if (!response.ok) {
+        let message = "导出失败，请检查登录状态后重试";
+        try {
+          const data = await response.json();
+          if (typeof data.detail === "string") message = data.detail;
+        } catch {
+          /* Proxy may return non-JSON errors. */
+        }
+        throw new Error(message);
+      }
       const url = URL.createObjectURL(await response.blob());
       const a = document.createElement("a");
       a.href = url;
-      a.download = `project-${project.id}.xlsx`;
+      a.download = `project-${project.id}.${format}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -95,7 +105,7 @@ export function Results({
     } catch (e) {
       setError(errorMessage(e));
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   }
   return (
@@ -110,14 +120,30 @@ export function Results({
           <h1>{project.title}</h1>
           <p>每一份填写，一目了然。附件点击即可下载。</p>
         </div>
-        <Button
-          type="primary"
-          icon={<Download size={18} />}
-          onClick={exportExcel}
-          loading={exporting}
-        >
-          导出 Excel
-        </Button>
+        <div className="export-actions">
+          <Button
+            type="primary"
+            icon={<Download size={18} />}
+            onClick={() => exportExcel("xlsx")}
+            loading={exporting === "xlsx"}
+            disabled={exporting !== null}
+          >
+            导出 Excel
+          </Button>
+          <Button
+            icon={<Download size={18} />}
+            onClick={() => exportExcel("zip")}
+            loading={exporting === "zip"}
+            disabled={exporting !== null}
+          >
+            下载资料包 ZIP
+          </Button>
+        </div>
+      </div>
+      <div className="info-note">
+        Excel 的「附件」表直接显示图片，并嵌入原始文件；嵌入对象建议使用 Windows
+        桌面 Excel 打开。WPS、Mac 或网页端打不开时，请下载
+        ZIP，完整解压后离线查看全部原文件。导出包含个人资料，请妥善保管。
       </div>
       <div className="result-summary">
         <span>
