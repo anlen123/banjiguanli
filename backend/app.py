@@ -13,11 +13,12 @@ import secrets
 import socket
 import sqlite3
 import time
+import unicodedata
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, NoReturn
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import exports
 import httpx
@@ -104,6 +105,9 @@ def initialize():
           created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS attempts (key TEXT PRIMARY KEY, count INTEGER, started REAL);
         CREATE TABLE IF NOT EXISTS file_deletions (id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS class_settings (
+          id INTEGER PRIMARY KEY CHECK(id=1), class_name TEXT NOT NULL);
+        INSERT OR IGNORE INTO class_settings VALUES(1, '我们的班级');
         """)
 
 
@@ -331,6 +335,72 @@ def logout(request: Request, response: Response):
 @app.get("/api/auth/me")
 def me(user=Depends(current_user)):
     return user
+
+
+def clean_identity(value: str, allow_empty: bool = False) -> str:
+    value = value.strip()
+    if (not allow_empty and not value) or any(
+        unicodedata.category(c) in {"Cc", "Cs"} for c in value
+    ):
+        raise ValueError("名称不能为空或包含控制字符")
+    return value
+
+
+class ClassSettingsIn(BaseModel):
+    class_name: str = Field(min_length=1, max_length=80)
+
+    @field_validator("class_name")
+    @classmethod
+    def validate_name(cls, value):
+        return clean_identity(value)
+
+
+class AdminProfileIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    student_no: str | None = Field(default=None, max_length=40)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value):
+        return clean_identity(value)
+
+    @field_validator("student_no")
+    @classmethod
+    def validate_student_no(cls, value):
+        return clean_identity(value, allow_empty=True) if value is not None else None
+
+
+def read_class_settings(c):
+    row = c.execute("SELECT class_name FROM class_settings WHERE id=1").fetchone()
+    return {"class_name": row["class_name"] if row else "我们的班级"}
+
+
+@app.get("/api/class-settings")
+def class_settings(user=Depends(current_user)):
+    with db() as c:
+        return read_class_settings(c)
+
+
+@app.put("/api/class-settings")
+def update_class_settings(body: ClassSettingsIn, user=Depends(admin)):
+    with db() as c:
+        c.execute(
+            "INSERT INTO class_settings VALUES(1,?) ON CONFLICT(id) DO UPDATE SET class_name=excluded.class_name",
+            (body.class_name,),
+        )
+        audit(c, user["id"], "update_class_settings", "class")
+        return read_class_settings(c)
+
+
+@app.put("/api/admin/profile")
+def update_admin_profile(body: AdminProfileIn, user=Depends(admin)):
+    with db() as c:
+        student_no = body.student_no if body.student_no is not None else user["student_no"]
+        c.execute(
+            "UPDATE users SET name=?,student_no=? WHERE id=?", (body.name, student_no, user["id"])
+        )
+        audit(c, user["id"], "update_admin_profile", user["id"])
+        return public_user(c.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone())
 
 
 @app.put("/api/auth/password")
@@ -758,6 +828,8 @@ def export(pid: int, format: Literal["xlsx", "zip"] = "xlsx", user=Depends(admin
         # A consistent snapshot; concurrent deletion cannot remove files during packaging.
         c.execute("BEGIN IMMEDIATE")
         p = get_project(c, pid, user)
+        p["class_name"] = read_class_settings(c)["class_name"]
+        filename = exports.export_filename(p["class_name"], p["title"], format)
         rows = c.execute(
             "SELECT s.*,u.name,u.student_no FROM submissions s JOIN users u ON u.id=s.user_id WHERE project_id=? ORDER BY u.student_no,u.id",
             (pid,),
@@ -816,7 +888,9 @@ def export(pid: int, format: Literal["xlsx", "zip"] = "xlsx", user=Depends(admin
         media_type="application/zip"
         if format == "zip"
         else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="project-{pid}.{format}"'},
+        headers={
+            "Content-Disposition": f"attachment; filename=\"export.{format}\"; filename*=UTF-8''{quote(filename, safe='')}"
+        },
     )
 
 

@@ -35,19 +35,46 @@ test("班长自己填写、两种离线导出、学生撤回及项目删除", as
   const card = page.locator("article").filter({ hasText: project.title });
   await card.getByRole("button", { name: "填写我的资料", exact: true }).click();
   await page.getByLabel("收集姓名").fill("班长本人资料");
-  await page
-    .getByLabel("证明附件", { exact: true })
-    .setInputFiles({
-      name: "班长.pdf",
-      mimeType: "application/pdf",
-      buffer: Buffer.from("%PDF-admin-original"),
-    });
+  await page.getByLabel("证明附件", { exact: true }).setInputFiles({
+    name: "班长.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-admin-original"),
+  });
   await expect(page.getByRole("link", { name: "班长.pdf" })).toBeVisible();
   await page.getByRole("button", { name: "提交资料", exact: true }).click();
   await expect(
     card.getByRole("button", { name: "修改我的资料" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "班级设置", exact: true }).click();
+  await page.getByLabel("班级名称", { exact: true }).fill("2026级计算机一班");
+  await page.getByRole("button", { name: "保存班级名称", exact: true }).click();
+  await expect(
+    page.getByText("班级名称已保存，后续导出将使用新的名称前缀。", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.getByLabel("我的真实姓名", { exact: true }).fill("陈小雨");
+  await page.getByLabel("我的学号（选填）", { exact: true }).fill("20260009");
+  await page.getByRole("button", { name: "保存我的资料", exact: true }).click();
+  await expect(page.locator(".sidebar-user strong")).toHaveText("陈小雨");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("class-settings-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.reload();
+  await expect(page.locator(".class-name")).toHaveText("2026级计算机一班");
+  await expect(page.locator(".sidebar-user strong")).toHaveText("陈小雨");
   await card.getByRole("button", { name: "查看资料" }).click();
+  await expect(
+    page.getByRole("cell", { name: "陈小雨 20260009", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("cell", { name: "班长本人资料", exact: true }),
   ).toBeVisible();
@@ -58,7 +85,9 @@ test("班长自己填写、两种离线导出、学生撤回及项目删除", as
     const pending = page.waitForEvent("download");
     await page.getByRole("button", { name: label, exact: true }).click();
     const download = await pending;
-    expect(download.suggestedFilename()).toBe(`project-${project.id}${suffix}`);
+    expect(download.suggestedFilename()).toBe(
+      `2026级计算机一班_${project.title}${suffix}`,
+    );
     await download.saveAs(testInfo.outputPath(`admin-export${suffix}`));
     expect(await download.failure()).toBeNull();
   }
@@ -96,6 +125,10 @@ test("班长自己填写、两种离线导出、学生撤回及项目删除", as
   });
   const student = await context.newPage();
   await login(student, "withdraw_student", "student-password");
+  await expect(student.locator(".class-name")).toHaveText("2026级计算机一班");
+  await expect(
+    student.getByRole("button", { name: "班级设置", exact: true }),
+  ).toHaveCount(0);
   const studentCard = student
     .locator("article")
     .filter({ hasText: project.title });

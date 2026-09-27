@@ -47,6 +47,21 @@ class Asset:
     path: str
 
 
+def export_filename(class_name: str, project_title: str, extension: str = "xlsx") -> str:
+    if extension not in {"xlsx", "zip"}:
+        raise ValueError("Unsupported export extension")
+
+    def part(value, limit, fallback):
+        # Keep names portable on Windows/macOS/Linux and avoid header/path injection.
+        value = re.sub(r'[\\/:*?"<>|\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]', "_", value)
+        value = (
+            value.strip(" .").encode("utf-8")[:limit].decode("utf-8", errors="ignore").rstrip(" .")
+        )
+        return value or fallback
+
+    return f"{part(class_name, 72, '班级')}_{part(project_title, 160, '项目')}.{extension}"
+
+
 def portable_name(name: str) -> str:
     value = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", name).strip(" .")
     value = value.encode("utf-8")[:120].decode("utf-8", errors="ignore")
@@ -160,6 +175,7 @@ def build_workbook(
         files.column_dimensions[column].width = width
     files.row_dimensions[1].height = 26
     instructions.append(["说明", "内容"])
+    instructions.append(["班级名称", text(project.get("class_name", "我们的班级"))])
     instructions.append(["收集项目", text(project["title"])])
     instructions.append(
         [
@@ -178,7 +194,7 @@ def build_workbook(
             "打开附件",
             "Excel 嵌入对象需使用支持 OLE 的 Windows 桌面 Excel，双击图标打开；需安装对应文件阅读程序。Office 安全策略可能阻止打开，请勿为此关闭安全保护。"
             if embedded
-            else "请先完整解压 ZIP，再打开 workbook.xlsx；原文件在 attachments 文件夹，保留相对目录即可离线访问。",
+            else "请先完整解压 ZIP，再打开以班级和项目名称命名的 Excel；原文件在 attachments 文件夹，保留相对目录即可离线访问。",
         ]
     )
     instructions.append(
@@ -360,8 +376,9 @@ def embed_objects(workbook: bytes, assets: list[Asset]) -> bytes:
 
 def build_zip(project: dict, records: list[dict], assets: list[Asset]) -> bytes:
     output = io.BytesIO()
+    workbook_name = export_filename(project.get("class_name", "我们的班级"), project["title"])
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("workbook.xlsx", build_workbook(project, records, assets, embedded=False))
+        archive.writestr(workbook_name, build_workbook(project, records, assets, embedded=False))
         manifest = []
         for asset in assets:
             archive.writestr(asset.path, asset.data)
@@ -380,6 +397,6 @@ def build_zip(project: dict, records: list[dict], assets: list[Asset]) -> bytes:
         archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         archive.writestr(
             "README.txt",
-            "请完整解压 ZIP 后打开 workbook.xlsx；图片在附件表预览，原文件在 attachments 目录。\n保持目录结构可使用 Excel 中的相对链接；软件拦截链接时可直接打开目录中的文件。\nmanifest.json 记录原文件名、填写人、相对路径及 SHA-256。\n本压缩包包含实际学生资料，请妥善保管，勿公开分享。\n",
+            f"请完整解压 ZIP 后打开 {workbook_name}；图片在附件表预览，原文件在 attachments 目录。\n保持目录结构可使用 Excel 中的相对链接；软件拦截链接时可直接打开目录中的文件。\nmanifest.json 记录原文件名、填写人、相对路径及 SHA-256。\n本压缩包包含实际学生资料，请妥善保管，勿公开分享。\n",
         )
     return output.getvalue()

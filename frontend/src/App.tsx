@@ -22,6 +22,7 @@ import {
   X,
   RefreshCw,
   Trash2,
+  Settings2,
 } from "lucide-react";
 import {
   api,
@@ -31,6 +32,7 @@ import {
   isClosed,
   type Project,
   type User,
+  type ClassSettings,
 } from "./api";
 import { Badge, Dialog, Empty, ErrorNotice, Loading, Logo } from "./ui";
 import { Auth } from "./Auth";
@@ -39,6 +41,7 @@ import { SubmissionForm } from "./SubmissionForm";
 import { Results } from "./Results";
 import { People } from "./People";
 import { Assistant } from "./Assistant";
+import { ClassSettingsPage } from "./ClassSettingsPage";
 
 function PasswordDialog({
   onClose,
@@ -184,6 +187,9 @@ export default function App() {
   const [page, setPage] = useState("projects");
   const [projects, setProjects] = useState<Project[]>([]);
   const [members, setMembers] = useState<User[]>([]);
+  const [classSettings, setClassSettings] = useState<ClassSettings | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -230,11 +236,13 @@ export default function App() {
     Promise.all([
       api<Project[]>("/projects"),
       user.role === "admin" ? api<User[]>("/users") : Promise.resolve([]),
+      api<ClassSettings>("/class-settings"),
     ])
-      .then(([p, u]) => {
+      .then(([p, u, settings]) => {
         if (active) {
           setProjects(p);
           setMembers(u);
+          setClassSettings(settings);
         }
       })
       .catch((e) => {
@@ -355,6 +363,7 @@ export default function App() {
       ? [
           { id: "people", label: "班级成员", icon: <UsersRound size={20} /> },
           { id: "ai", label: "AI 小助手", icon: <Sparkles size={20} /> },
+          { id: "settings", label: "班级设置", icon: <Settings2 size={20} /> },
         ]
       : []),
   ];
@@ -380,7 +389,9 @@ export default function App() {
         </div>
         <div className="class-label">
           <span className="class-dot" />
-          我们的班级
+          <span className="class-name" title={classSettings?.class_name}>
+            {classSettings?.class_name ?? "加载班级…"}
+          </span>
           <span className="class-role">
             {isAdmin ? "管理空间" : "同学空间"}
           </span>
@@ -450,7 +461,9 @@ export default function App() {
                     : "收集项目"
                   : page === "people"
                     ? "班级成员"
-                    : "AI 小助手"}
+                    : page === "settings"
+                      ? "班级设置"
+                      : "AI 小助手"}
               </b>
             </span>
           </div>
@@ -485,6 +498,19 @@ export default function App() {
             <People onChanged={refresh} />
           ) : page === "ai" && isAdmin ? (
             <Assistant />
+          ) : page === "settings" && isAdmin ? (
+            classSettings ? (
+              <ClassSettingsPage
+                user={user}
+                settings={classSettings}
+                onClassSaved={setClassSettings}
+                onProfileSaved={setUser}
+              />
+            ) : loading ? (
+              <Loading />
+            ) : (
+              <Button onClick={refresh}>重新加载班级设置</Button>
+            )
           ) : results && isAdmin ? (
             <Results
               project={projects.find((p) => p.id === results.id) ?? results}

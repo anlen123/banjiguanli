@@ -41,6 +41,7 @@ export type Submission = {
   files: Record<string, Attachment>;
   updated_at: string | null;
 };
+export type ClassSettings = { class_name: string };
 export type AIConfig = { base_url: string; model: string; has_key: boolean };
 export class ApiError extends Error {
   constructor(

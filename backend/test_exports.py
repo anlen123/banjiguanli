@@ -158,7 +158,9 @@ def test_zip_preserves_originals_and_offline_paths(clients):
             assert not path.is_absolute() and ".." not in path.parts
             assert archive.read(item["path"]) == originals[item["id"]]
             assert hashlib.sha256(archive.read(item["path"])).hexdigest() == item["sha256"]
-        book = load_workbook(io.BytesIO(archive.read("workbook.xlsx")))
+        book = load_workbook(
+            io.BytesIO(archive.read(exports.export_filename("我们的班级", p["title"])))
+        )
         assert len(book["附件"]._images) == 1  # pyright: ignore[reportAttributeAccessIssue]
         for row in range(2, len(manifest) + 2):
             link = book["附件"].cell(row, 7).hyperlink

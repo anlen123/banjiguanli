@@ -94,10 +94,15 @@ export function Results({
         }
         throw new Error(message);
       }
+      const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(
+        response.headers.get("Content-Disposition") ?? "",
+      );
+      if (!encodedName) throw new Error("导出响应缺少文件名称，请刷新后重试");
+      const filename = decodeURIComponent(encodedName[1]);
       const url = URL.createObjectURL(await response.blob());
       const a = document.createElement("a");
       a.href = url;
-      a.download = `project-${project.id}.${format}`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
