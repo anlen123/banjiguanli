@@ -26,12 +26,14 @@ export function SubmissionForm({
   target,
   onClose,
   onSaved,
+  onWithdrawn,
 }: {
   project: Project;
   admin?: boolean;
   target?: { id: number; name: string };
   onClose: () => void;
   onSaved: () => void;
+  onWithdrawn?: () => void;
 }) {
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [files, setFiles] = useState<Record<string, Attachment>>({});
@@ -109,6 +111,15 @@ export function SubmissionForm({
     } finally {
       setUploading("");
     }
+  }
+  async function withdraw() {
+    if (!window.confirm("确定撤回这份填写信息？该填写人在本项目上传的全部附件也会删除，无法恢复。撤回后可以重新填写。")) return;
+    setSaving(true); setError("");
+    try {
+      await api(`/projects/${project.id}/submission${suffix}`, "DELETE");
+      (onWithdrawn ?? onSaved)();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setSaving(false); }
   }
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -289,6 +300,7 @@ export function SubmissionForm({
             <span className="hint">
               {closed ? "你的资料已妥善保管" : "附件上传后，请记得保存提交"}
             </span>
+            {updated && !closed && <Button danger disabled={saving || !!uploading || !loaded} onClick={withdraw}>撤回填写</Button>}
             <Button disabled={saving || !!uploading} onClick={onClose}>
               关闭
             </Button>

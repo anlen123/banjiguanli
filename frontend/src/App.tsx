@@ -21,6 +21,7 @@ import {
   ArrowRight,
   X,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import {
   api,
@@ -193,6 +194,7 @@ export default function App() {
   const [editor, setEditor] = useState<Project | "new" | null>(null);
   const [filling, setFilling] = useState<Project | null>(null);
   const [results, setResults] = useState<Project | null>(null);
+  const [deleting, setDeleting] = useState<number | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [, tick] = useState(0);
@@ -257,6 +259,15 @@ export default function App() {
     setMobileNav(false);
     setError("");
   };
+  async function deleteProject(p: Project) {
+    if (deleting !== null || !window.confirm(`确定永久删除「${p.title}」？所有人的填写信息和本项目的全部附件都会删除，无法恢复。请先导出备份。`)) return;
+    setDeleting(p.id); setError("");
+    try {
+      await api(`/projects/${p.id}`, "DELETE");
+      refresh(); setNotice("项目及其填写资料已删除");
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setDeleting(null); }
+  }
   async function logout() {
     try {
       await api("/auth/logout", "POST");
@@ -301,7 +312,7 @@ export default function App() {
   const activeProjects = projects.filter((p) => p.published && !isClosed(p));
   const pendingCount = members.filter((u) => u.status === "pending").length;
   const approvedCount = members.filter(
-    (u) => u.status === "approved" && u.role === "student",
+    (u) => u.status === "approved",
   ).length;
   const filtered = projects
     .filter(
@@ -697,7 +708,7 @@ export default function App() {
                                 <span>
                                   已收到 <b>{p.submission_count ?? 0}</b> 份资料
                                 </span>
-                                <small>班级 {approvedCount} 位同学</small>
+                                <small>班级 {approvedCount} 位成员（含班长）</small>
                               </div>
                               <div className="progress-track">
                                 <span style={{ width: `${progress}%` }} />
@@ -724,6 +735,10 @@ export default function App() {
                               )}
                             </div>
                           )}
+                          {isAdmin && <div className="admin-personal-actions">
+                            <button className="card-open" onClick={() => setFilling(p)}><Pencil size={15}/>{p.my_submitted_at ? "修改我的资料" : "填写我的资料"}</button>
+                            <button className="delete-project" disabled={deleting !== null} onClick={() => deleteProject(p)}><Trash2 size={15}/>{deleting === p.id ? "删除中…" : "删除项目"}</button>
+                          </div>}
                           <div className="project-card-footer">
                             {isAdmin ? (
                               <>
@@ -801,6 +816,8 @@ export default function App() {
       {filling && (
         <SubmissionForm
           project={filling}
+          admin={isAdmin}
+          onWithdrawn={() => { setFilling(null); refresh(); setNotice("填写信息已撤回，附件已清理；可重新填写"); }}
           onClose={() => setFilling(null)}
           onSaved={() => {
             setFilling(null);

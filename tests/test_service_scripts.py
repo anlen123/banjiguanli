@@ -1,4 +1,5 @@
 """Exercise service scripts with a fake Docker CLI, without touching real services."""
+
 import json
 import os
 import shutil
@@ -31,7 +32,11 @@ class ServiceScriptsTest(unittest.TestCase):
             "if os.environ.get('MOCK_FAIL') in sys.argv[1:]: sys.exit(19)\n"
         )
         fake.chmod(0o755)
-        self.env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "MOCK_LOG": str(self.log)}
+        self.env = {
+            **os.environ,
+            "PATH": f"{self.bin}:{os.environ['PATH']}",
+            "MOCK_LOG": str(self.log),
+        }
 
     def run_script(self, name, *args, fail=""):
         return subprocess.run(

@@ -54,7 +54,7 @@ export function Results({
         if (active) {
           setRows(r);
           setUsers(
-            u.filter((x) => x.role === "student" && x.status === "approved"),
+            u.filter((x) => x.status === "approved"),
           );
         }
       })
@@ -264,7 +264,7 @@ export function Results({
             ) : (
               <Empty
                 title="大家都交齐啦！"
-                description="所有已审核的同学都完成了本次收集。"
+                description="所有已审核的成员（含班长）都完成了本次收集。"
               >
                 <CheckCircle2 size={30} />
               </Empty>
@@ -275,7 +275,7 @@ export function Results({
           <span>
             {tab === "submitted"
               ? `共 ${filtered.length} 条记录 · ${project.fields.length} 个收集字段`
-              : "仅统计已审核通过的学生"}
+              : "统计已审核成员，包括班长本人"}
           </span>
           <span>仅管理员可见 · 妥善保护同学隐私</span>
         </div>

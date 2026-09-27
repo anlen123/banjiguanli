@@ -105,12 +105,14 @@ def initialize():
           id INTEGER PRIMARY KEY, actor INTEGER, action TEXT NOT NULL, target TEXT NOT NULL,
           created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS attempts (key TEXT PRIMARY KEY, count INTEGER, started REAL);
+        CREATE TABLE IF NOT EXISTS file_deletions (id TEXT PRIMARY KEY);
         """)
 
 
 @asynccontextmanager
 async def lifespan(app):
     initialize()
+    purge_deleted_files()
     yield
 
 
@@ -198,6 +200,17 @@ def admin(user=Depends(current_user)):
     if user["role"] != "admin":
         fail(403, "仅管理员可以操作")
     return user
+
+
+def purge_deleted_files():
+    """Delete only committed tombstones. Failed filesystem cleanup retries at next startup."""
+    with db() as c:
+        for row in c.execute("SELECT id FROM file_deletions").fetchall():
+            try:
+                (DATA / "uploads" / row["id"]).unlink(missing_ok=True)
+            except OSError:
+                continue
+            c.execute("DELETE FROM file_deletions WHERE id=?", (row["id"],))
 
 
 def audit(c, actor, action, target):
@@ -610,6 +623,39 @@ def save_submission(
             (pid, uid, json.dumps(body.answers, ensure_ascii=False), now()),
         )
         audit(c, user["id"], "save_submission", f"{pid}:{uid}")
+    return {"ok": True}
+
+
+@app.delete("/api/projects/{pid}")
+def delete_project(pid: int, user=Depends(admin)):
+    with db() as c:
+        c.execute("BEGIN IMMEDIATE")
+        get_project(c, pid, user)
+        c.execute("INSERT OR IGNORE INTO file_deletions SELECT id FROM attachments WHERE project_id=?", (pid,))
+        c.execute("DELETE FROM submissions WHERE project_id=?", (pid,))
+        c.execute("DELETE FROM attachments WHERE project_id=?", (pid,))
+        c.execute("DELETE FROM projects WHERE id=?", (pid,))
+        audit(c, user["id"], "delete_project", pid)
+    purge_deleted_files()
+    return {"ok": True}
+
+
+@app.delete("/api/projects/{pid}/submission")
+def withdraw_submission(pid: int, user_id: int | None = None, user=Depends(current_user)):
+    uid = user_id if user_id is not None else user["id"]
+    if uid != user["id"] and user["role"] != "admin":
+        fail(403, "只能撤回自己的填写信息")
+    with db() as c:
+        c.execute("BEGIN IMMEDIATE")
+        p = get_project(c, pid, user)
+        editable(p, user)
+        if not c.execute("SELECT id FROM submissions WHERE project_id=? AND user_id=?", (pid, uid)).fetchone():
+            fail(404, "尚未提交或填写信息已撤回")
+        c.execute("INSERT OR IGNORE INTO file_deletions SELECT id FROM attachments WHERE project_id=? AND user_id=?", (pid, uid))
+        c.execute("DELETE FROM submissions WHERE project_id=? AND user_id=?", (pid, uid))
+        c.execute("DELETE FROM attachments WHERE project_id=? AND user_id=?", (pid, uid))
+        audit(c, user["id"], "withdraw_submission", f"{pid}:{uid}")
+    purge_deleted_files()
     return {"ok": True}
 
 
