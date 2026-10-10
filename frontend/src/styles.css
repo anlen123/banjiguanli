@@ -1782,6 +1782,12 @@ tr:last-child td {
   gap: 8px;
   white-space: nowrap;
 }
+.people-table .member-danger-action {
+  color: #ab513b;
+}
+.people-table .member-danger-action > span {
+  color: inherit;
+}
 .soft-icon {
   width: 60px;
   height: 60px;

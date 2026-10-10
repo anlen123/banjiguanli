@@ -441,6 +441,28 @@ def user_status(uid: int, body: UserStatus, user=Depends(admin)):
     return {"ok": True}
 
 
+@app.delete("/api/users/{uid}")
+def delete_user(uid: int, user=Depends(admin)):
+    with db() as c:
+        c.execute("BEGIN IMMEDIATE")
+        target = c.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+        if not target:
+            fail(404, "用户不存在")
+        if target["role"] == "admin":
+            fail(400, "不能删除超级管理员")
+        c.execute(
+            "INSERT OR IGNORE INTO file_deletions SELECT id FROM attachments WHERE user_id=?",
+            (uid,),
+        )
+        c.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM submissions WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM attachments WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM users WHERE id=?", (uid,))
+        audit(c, user["id"], "delete_user", uid)
+    purge_deleted_files()
+    return {"ok": True}
+
+
 @app.put("/api/users/{uid}/password")
 def reset_password(uid: int, body: NewPassword, user=Depends(admin)):
     with db() as c:

@@ -5,6 +5,7 @@ import {
   KeyRound,
   Search,
   ShieldCheck,
+  Trash2,
   UserRound,
   RefreshCw,
 } from "lucide-react";
@@ -63,6 +64,27 @@ export function People({ onChanged }: { onChanged: () => void }) {
       setBusy(false);
     }
   }
+  async function deleteUser(user: User) {
+    if (
+      !window.confirm(
+        `确定永久删除 ${user.name}（@${user.username}）？该账号、所有项目中的填写记录及上传附件都会删除，且无法恢复。若只需禁止登录，请使用停用功能。`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      await api(`/users/${user.id}`, "DELETE");
+      setVersion((v) => v + 1);
+      onChanged();
+      setSuccess(`已删除 ${user.name} 的账号及相关资料`);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function resetPassword(e: FormEvent) {
     e.preventDefault();
     if (!reset) return;
@@ -104,7 +126,7 @@ export function People({ onChanged }: { onChanged: () => void }) {
       </div>
       <div className="info-note">
         <ShieldCheck size={20} />
-        新注册账号需要审核通过才能登录。管理员只能重置密码，无法查看任何人的原密码。
+        新注册账号需要审核通过才能登录。停用保留资料；删除会永久清除账号、填写记录和附件。管理员只能重置密码，无法查看任何人的原密码。
       </div>
       <div className="panel">
         <div className="workbook-toolbar">
@@ -222,6 +244,7 @@ export function People({ onChanged }: { onChanged: () => void }) {
                                 size="small"
                                 type="text"
                                 danger
+                                className="member-danger-action"
                                 disabled={busy}
                                 onClick={() => status(u, "rejected")}
                               >
@@ -239,6 +262,17 @@ export function People({ onChanged }: { onChanged: () => void }) {
                               }}
                             >
                               重置密码
+                            </Button>
+                            <Button
+                              size="small"
+                              type="text"
+                              danger
+                              className="member-danger-action"
+                              disabled={busy}
+                              icon={<Trash2 size={14} />}
+                              onClick={() => deleteUser(u)}
+                            >
+                              删除
                             </Button>
                           </>
                         )}

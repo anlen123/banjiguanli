@@ -86,13 +86,11 @@ test("班长发布、审核学生、手机填写、导出与截止重新开放",
   ).toBe(true);
   await student.getByRole("button", { name: "去填写" }).click();
   await student.getByLabel("联系电话").fill("13800138000");
-  await student
-    .getByLabel("个人资料", { exact: true })
-    .setInputFiles({
-      name: "自我介绍.pdf",
-      mimeType: "application/pdf",
-      buffer: Buffer.from("%PDF-1.4 test document"),
-    });
+  await student.getByLabel("个人资料", { exact: true }).setInputFiles({
+    name: "自我介绍.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4 test document"),
+  });
   await expect(
     student.getByRole("link", { name: "自我介绍.pdf" }),
   ).toBeVisible();
@@ -101,7 +99,9 @@ test("班长发布、审核学生、手机填写、导出与截止重新开放",
     fullPage: true,
   });
   await student.getByRole("button", { name: "提交资料", exact: true }).click();
-  await expect(student.getByRole("status")).toContainText("资料已提交");
+  await expect(
+    student.getByRole("status").filter({ hasText: "资料已提交" }),
+  ).toBeVisible();
   await student.getByRole("button", { name: "修改填写" }).click();
   await student.getByLabel("联系电话").fill("13900139000");
   await student.getByRole("button", { name: "保存修改", exact: true }).click();
